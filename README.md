@@ -1,5 +1,10 @@
 # 🛡️ Fase 3: Governança, Storage e Segurança com pfSense e Samba4
 
+![Debian](https://img.shields.io/badge/OS-DEBIAN_12-A81D33?style=for-the-badge&logo=debian&logoColor=white)
+![Samba](https://img.shields.io/badge/SOFTWARE-SAMBA4_AD_DC-FF8C00?style=for-the-badge)
+![Windows](https://img.shields.io/badge/CLIENT-WINDOWS_10/11_PRO-0078D6?style=for-the-badge&logo=windows&logoColor=white)
+![Status](https://img.shields.io/badge/STATUS-100%25_OPERACIONAL-00C853?style=for-the-badge)
+
 Nesta terceira fase do nosso laboratório de Infraestrutura Corporativa, vamos pegar o Domínio criado na Fase 2 e protegê-lo de verdade. Se você é iniciante, não se preocupe: vou explicar o "porquê" de cada comando antes de executarmos.
 
 ## 📋 Pré-requisitos
