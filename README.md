@@ -19,6 +19,9 @@ Antes de começar, você precisa ter concluído:
    - Mapeando discos de rede automaticamente.
    - Bloqueando o Painel de Controle dos usuários.
 5. **Troubleshooting:** Como resolvi os problemas de bloqueio de rede e permissões fantasmas.
+
+---
+
 ## 🚀 Passo a Passo da Implementação
 
 ### 1. Entendendo a Topologia e Configurando o pfSense
@@ -61,7 +64,79 @@ Por padrão, a rede LAN não fala com a DMZ. Precisamos abrir uma exceção apen
 5. **Source:** LAN net
 6. **Destination:** Single host or alias -> digite `AD_SERVER_IP`
 7. **Destination Port Range:** Em *from* e *to*, digite `AD_SERVICES_PORTS`.
-8. **Description:** "Permitir tráfego da LAN para serviços Core do Samba4 DMZ".
+8. **Description:** Permitir tráfego da LAN para serviços Core do Samba4 DMZ.
 9. Salve e clique em **Apply Changes**.
 
 *Pronto! Agora a sua rede local já consegue autenticar no Domínio de forma segura através do firewall.*
+
+---
+
+### 2. Servidor de Arquivos (File Server) no Linux e Permissões POSIX ACL
+
+Com a rede se comunicando de forma segura, vamos criar nosso Servidor de Arquivos departamental. O objetivo aqui é aplicar o "Princípio do Privilégio Mínimo": o RH não pode ver os arquivos da Diretoria, e vice-versa.
+
+#### Passo 2.1: Criando a Estrutura de Pastas
+Acesse o terminal do seu servidor Debian (Samba4) e crie a estrutura raiz e as pastas dos departamentos:
+```bash
+mkdir -p /srv/samba/arquivos_corporativos
+cd /srv/samba/arquivos_corporativos
+mkdir Diretoria RH Financeiro
+```
+
+#### Passo 2.2: O Segredo da Herança (vfs objects)
+Para que o Windows entenda perfeitamente as permissões do Linux, precisamos ativar os atributos estendidos (POSIX ACLs) no Samba. Edite o arquivo principal:
+```bash
+nano /etc/samba/smb.conf
+```
+Dentro da configuração do seu compartilhamento (ex: `[Arquivos]`), adicione:
+```ini
+vfs objects = acl_xattr
+map acl inherit = yes
+store dos attributes = yes
+```
+Salve o arquivo e reinicie o serviço: 
+```bash
+systemctl restart samba-ad-dc
+```
+
+#### Passo 2.3: Aplicando as Permissões via Console
+Vamos usar o `setfacl` para atrelar os grupos de segurança do Active Directory diretamente às pastas no Debian:
+```bash
+# Exemplo para a pasta da Diretoria:
+chmod 770 /srv/samba/arquivos_corporativos/Diretoria
+setfacl -m g:"GG_Diretoria":rwx /srv/samba/arquivos_corporativos/Diretoria
+```
+
+---
+
+### 3. Políticas de Grupo (GPO) no Windows
+
+Agora que a fundação e as pastas estão prontas, vamos usar o RSAT no Windows 10 para criar políticas que automatizem as tarefas dos usuários.
+
+#### Passo 3.1: Mapeamento Automático de Discos
+1. Abra o **Gerenciamento de Política de Grupo**.
+2. Crie uma GPO chamada `GPO_Mapeamento_Discos` e vincule à unidade organizacional dos usuários.
+3. Edite a GPO: `Configurações do Usuário > Preferências > Configurações do Windows > Mapas de Unidade`.
+4. Clique com o botão direito `Novo > Unidade Mapeada`.
+5. Em **Local**, digite o caminho da rede (ex: `\\dc01\Arquivos\RH`).
+6. Escolha uma letra (ex: `R:`) e marque a opção **Item de Nível de Destino** para aplicar essa unidade apenas se o usuário pertencer ao grupo "GG_RH".
+
+#### Passo 3.2: Bloqueio do Painel de Controle
+1. Crie uma GPO chamada `GPO_Seguranca_Desktop`.
+2. Edite a GPO: `Configurações do Usuário > Políticas > Modelos Administrativos > Painel de Controle`.
+3. Dê um duplo clique em **Proibir acesso ao Painel de Controle e às configurações do PC**.
+4. Marque como **Habilitado** e aplique.
+
+---
+
+### 🐛 Troubleshooting Documentado: Problemas Reais que Enfrentamos
+
+A teoria é linda, mas na prática as coisas quebram. Durante essa homologação, enfrentamos problemas críticos que você também pode encontrar:
+
+#### 1. O "Default-Deny" do pfSense (Falha de Logon)
+*   **Sintoma:** Após ligar o pfSense, as máquinas Windows na LAN não conseguiam autenticar ou validar o ticket Kerberos.
+*   **Solução:** A DMZ bloqueia tudo por padrão. A solução foi criar as regras explícitas de aprovação (Pass) no pfSense para as portas TCP/UDP 53, 88, 389 e 445 da LAN para o IP do Servidor AD.
+
+#### 2. O Crash do Windows Explorer (Aba Segurança)
+*   **Sintoma:** Ao tentar acessar a pasta `\\dc01` pelo Windows, clicar com o botão direito na pasta de um departamento e ir na aba "Segurança", o Windows simplesmente surtava. Ele fechava a janela de propriedades e a pasta sozinhos, voltando direto para a Área de Trabalho sem dar nenhuma mensagem de erro.
+*   **Solução:** Esse "crash" bizarro acontece porque o Windows tenta ler a lista de controle de acesso (ACL) do Linux e não consegue interpretar os metadados corretamente, causando uma falha no processo `explorer.exe`. Isso foi resolvido garantindo que o parâmetro `vfs objects = acl_xattr` estava perfeitamente configurado no `smb.conf` (conforme Passo 2.2) e reiniciando o serviço. O Samba passou a traduzir as permissões perfeitamente para o formato NT do Windows!
